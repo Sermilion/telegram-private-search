@@ -132,14 +132,17 @@ The current ingestion path focuses on text messages from main and archived priva
 
 ## Privacy and data flow
 
-This project is designed to keep your message archive local.
+This project is designed to keep retrieval local and only expose the conversation slices you actually ask for.
 
 - Telegram data is indexed into a local database under `data/`
 - Your `.env` stays local and should never be committed
 - The MCP server runs locally over `stdio`
-- Semantic features use an OpenAI-compatible API only for query understanding and embeddings when configured
+- `search_messages` reconstructs expanded thread context locally before returning results
+- Query analysis falls back to local heuristics unless you explicitly enable remote query analysis
+- Archive-wide embeddings are disabled by default
+- Semantic features use an OpenAI-compatible API for query understanding, and for archive embeddings only when you explicitly enable them
 
-If embeddings are enabled, the text sent to your model provider depends on the search flow you configure. If you want the strictest local setup, disable embeddings.
+If query analysis is enabled, your search query text is sent to the configured model provider. If embeddings are enabled, indexing sends chunk text to the provider to build semantic vectors. If you want the strictest setup, leave both disabled and rely on local heuristics plus thread expansion.
 
 ## Example use cases
 
@@ -180,8 +183,9 @@ TELEGRAM_SESSION_DIR=data/telegram-session
 DATABASE_PATH=data/telegram-search.db
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_CHAT_MODEL=gpt-4.1-mini
+QUERY_ANALYSIS_ENABLED=false
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDINGS_ENABLED=true
+EMBEDDINGS_ENABLED=false
 ```
 
 ## CLI usage
@@ -202,7 +206,7 @@ Install a runnable distribution:
 Run a direct search:
 
 ```bash
-./gradlew run --args='search "find last message where he reported progress on Readian"'
+./gradlew run --args='search "find last message where he reported progress on Readian" --context-before-messages 12 --context-after-messages 12'
 ```
 
 ## MCP usage
@@ -215,8 +219,15 @@ Start the MCP server:
 
 Once running, an MCP-compatible client can use the server's search tools to query your indexed Telegram history.
 
+`search_messages` accepts these optional context controls:
+
+- `context_before_messages`: how many earlier messages to include around each matched anchor
+- `context_after_messages`: how many later messages to include around each matched anchor
+
+Both default to `12`, so the tool returns a local conversation slice rather than an isolated chunk. Set them to `0` if you want anchor-only results.
+
 ## Notes
 
 - The first `index` run is interactive if `TELEGRAM_USE_CONSOLE_LOGIN=true`.
 - TDLight logs are reduced to keep login prompts visible.
-- Search combines keyword filtering, optional embeddings, and recency-aware ranking.
+- Search combines local keyword filtering, optional embeddings, recency-aware ranking, and local thread expansion.

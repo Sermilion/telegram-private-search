@@ -1,5 +1,6 @@
 package io.sermilion.telegramsearch.domain.usecase
 
+import io.sermilion.telegramsearch.domain.model.IndexedMessage
 import io.sermilion.telegramsearch.domain.model.SearchIntent
 import io.sermilion.telegramsearch.domain.model.SearchResponse
 import io.sermilion.telegramsearch.domain.model.SearchResult
@@ -15,7 +16,15 @@ class SearchMessagesUseCase(
   private val searchIntelligence: SearchIntelligence,
   private val clock: Clock = Clock.systemUTC(),
 ) {
-  suspend operator fun invoke(query: String, limit: Int, selfUserId: Long? = null): SearchResponse {
+  suspend operator fun invoke(
+    query: String,
+    limit: Int,
+    selfUserId: Long? = null,
+    contextBeforeMessages: Int = DEFAULT_CONTEXT_MESSAGES,
+    contextAfterMessages: Int = DEFAULT_CONTEXT_MESSAGES,
+  ): SearchResponse {
+    val safeContextBeforeMessages = contextBeforeMessages.coerceAtLeast(0)
+    val safeContextAfterMessages = contextAfterMessages.coerceAtLeast(0)
     val intent = searchIntelligence.analyzeQuery(query)
     val lexicalQuery = buildLexicalQuery(intent)
     val candidates = linkedMapOf<String, StoredChunk>()
@@ -29,20 +38,62 @@ class SearchMessagesUseCase(
     }
     val queryEmbedding = searchIntelligence.embedTexts(listOf(query)).firstOrNull().orEmpty()
     val effectiveSelfUserId = selfUserId ?: messageRepository.getStoredAccount()?.userId
-    val ranked = candidates.values
+    val rankedCandidates = candidates.values
       .asSequence()
       .filter { candidate -> matchesSpeaker(intent, candidate.senderId, effectiveSelfUserId) }
       .map { candidate -> toResult(candidate, intent, queryEmbedding) }
       .sortedWith(
         if (intent.wantsLatest) {
-          compareByDescending<SearchResult> { it.sentAt }.thenByDescending { it.combinedScore }
+          compareByDescending<SearchResult> { it.anchorSentAt }.thenByDescending { it.combinedScore }
         } else {
-          compareByDescending<SearchResult> { it.combinedScore }.thenByDescending { it.sentAt }
+          compareByDescending<SearchResult> { it.combinedScore }.thenByDescending { it.anchorSentAt }
         }
       )
-      .take(limit)
       .toList()
-    return SearchResponse(intent = intent, results = ranked, selfUserId = effectiveSelfUserId)
+    val ranked = mutableListOf<SearchResult>()
+    rankedCandidates.forEach { candidate ->
+      if (ranked.size >= limit) {
+        return@forEach
+      }
+      val messages = messageRepository.conversationSlice(
+        chatId = candidate.chatId,
+        anchorMessageIds = candidate.anchorMessageIds,
+        beforeCount = safeContextBeforeMessages,
+        afterCount = safeContextAfterMessages,
+      )
+      if (messages.isEmpty()) {
+        return@forEach
+      }
+      if (overlapsExistingSlice(ranked, candidate.chatId, messages)) {
+        return@forEach
+      }
+      ranked += candidate.copy(
+        text = messages.formatResultText().ifBlank { candidate.anchorText },
+        messages = messages,
+        contextExpanded = messages.any { message -> candidate.anchorMessageIds.none { it == message.messageId } },
+      )
+    }
+    return SearchResponse(
+      intent = intent,
+      results = ranked,
+      selfUserId = effectiveSelfUserId,
+      contextBeforeMessages = safeContextBeforeMessages,
+      contextAfterMessages = safeContextAfterMessages,
+    )
+  }
+
+  private fun overlapsExistingSlice(
+    existingResults: List<SearchResult>,
+    chatId: Long,
+    messages: List<IndexedMessage>,
+  ): Boolean {
+    if (messages.isEmpty()) {
+      return false
+    }
+    val messageIds = messages.map { it.messageId }.toSet()
+    return existingResults.any { result ->
+      result.chatId == chatId && result.messages.any { message -> messageIds.contains(message.messageId) }
+    }
   }
 
   private fun buildLexicalQuery(intent: SearchIntent): String {
@@ -76,11 +127,14 @@ class SearchMessagesUseCase(
     return SearchResult(
       chunkKey = candidate.chunkKey,
       chatId = candidate.chatId,
-      messageIds = candidate.messageIds,
-      senderName = candidate.senderName,
-      sentAt = candidate.sentAt,
+      anchorMessageIds = candidate.messageIds,
+      anchorSenderName = candidate.senderName,
+      anchorSentAt = candidate.sentAt,
       chatTitle = candidate.chatTitle,
       text = candidate.text,
+      anchorText = candidate.text,
+      messages = emptyList(),
+      contextExpanded = false,
       lexicalScore = lexicalScore,
       semanticScore = semanticScore,
       combinedScore = combinedScore,
@@ -126,5 +180,15 @@ class SearchMessagesUseCase(
   private fun recencyScore(candidate: StoredChunk): Double {
     val age = Duration.between(candidate.sentAt, clock.instant()).toDays().toDouble()
     return (1.0 - (age / 180.0)).coerceIn(0.0, 1.0)
+  }
+
+  private fun List<IndexedMessage>.formatResultText(): String {
+    return joinToString(separator = "\n\n") { message ->
+      "${message.sentAt} | ${message.senderName}\n${message.text}"
+    }
+  }
+
+  private companion object {
+    const val DEFAULT_CONTEXT_MESSAGES = 12
   }
 }

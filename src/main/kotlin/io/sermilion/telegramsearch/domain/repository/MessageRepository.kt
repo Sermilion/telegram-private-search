@@ -10,6 +10,12 @@ interface MessageRepository {
   suspend fun replaceChunks(chatId: Long, chunks: List<MessageChunk>): Int
   suspend fun searchLexical(query: String, limit: Int): List<StoredChunk>
   suspend fun recentChunks(limit: Int): List<StoredChunk>
+  suspend fun conversationSlice(
+    chatId: Long,
+    anchorMessageIds: List<Long>,
+    beforeCount: Int,
+    afterCount: Int,
+  ): List<IndexedMessage>
   suspend fun storeAccount(account: TelegramAccount)
   suspend fun getStoredAccount(): TelegramAccount?
 }

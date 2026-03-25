@@ -8,4 +8,6 @@ data class SearchUiState(
   val isLoading: Boolean = false,
   val intent: SearchIntent? = null,
   val results: List<SearchResult> = emptyList(),
+  val contextBeforeMessages: Int = 0,
+  val contextAfterMessages: Int = 0,
 )

@@ -18,6 +18,7 @@ data class OpenAiConfig(
   val baseUrl: String,
   val apiKey: String,
   val chatModel: String,
+  val queryAnalysisEnabled: Boolean,
   val embeddingModel: String,
   val embeddingsEnabled: Boolean,
 )

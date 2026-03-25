@@ -59,7 +59,7 @@ class TelegramSearchMcpServer(
     )
     server.addTool(
       name = "search_messages",
-      description = "Search indexed private Telegram messages using keyword and semantic ranking.",
+      description = "Search indexed private Telegram messages using local retrieval, optional semantic ranking, and expanded thread context.",
       inputSchema = ToolSchema(
         properties = buildJsonObject {
           putJsonObject("query") {
@@ -74,6 +74,16 @@ class TelegramSearchMcpServer(
             put("type", "integer")
             put("description", "Optional Telegram user id used to resolve self/other speaker hints")
           }
+          putJsonObject("context_before_messages") {
+            put("type", "integer")
+            put("default", 12)
+            put("description", "How many earlier messages to include around each matched anchor")
+          }
+          putJsonObject("context_after_messages") {
+            put("type", "integer")
+            put("default", 12)
+            put("description", "How many later messages to include around each matched anchor")
+          }
         },
         required = listOf("query"),
       ),
@@ -84,7 +94,15 @@ class TelegramSearchMcpServer(
         val query = arguments.requiredString("query")
         val limit = arguments.intValue("limit") ?: 5
         val selfUserId = arguments.longValue("self_user_id")
-        val response = searchMessagesUseCase(query = query, limit = limit, selfUserId = selfUserId)
+        val contextBeforeMessages = arguments.intValue("context_before_messages") ?: 12
+        val contextAfterMessages = arguments.intValue("context_after_messages") ?: 12
+        val response = searchMessagesUseCase(
+          query = query,
+          limit = limit,
+          selfUserId = selfUserId,
+          contextBeforeMessages = contextBeforeMessages,
+          contextAfterMessages = contextAfterMessages,
+        )
         CallToolResult(content = listOf(TextContent(JsonSupport.json.encodeToString(response.toDataModel()))))
       }
     }
@@ -126,6 +144,8 @@ class TelegramSearchMcpServer(
 private data class SearchResponseDataModel(
   val intent: SearchIntentDataModel,
   val selfUserId: Long?,
+  val contextBeforeMessages: Int,
+  val contextAfterMessages: Int,
   val results: List<SearchResultDataModel>,
 )
 
@@ -142,14 +162,30 @@ private data class SearchIntentDataModel(
 private data class SearchResultDataModel(
   val chunkKey: String,
   val chatId: Long,
-  val messageIds: List<Long>,
-  val senderName: String,
-  val sentAt: String,
+  val anchorMessageIds: List<Long>,
+  val anchorSenderName: String,
+  val anchorSentAt: String,
   val chatTitle: String,
   val text: String,
+  val anchorText: String,
+  val contextExpanded: Boolean,
+  val messages: List<SearchMessageDataModel>,
   val lexicalScore: Double,
   val semanticScore: Double,
   val combinedScore: Double,
+)
+
+@Serializable
+private data class SearchMessageDataModel(
+  val chatId: Long,
+  val messageId: Long,
+  val senderId: Long?,
+  val senderName: String,
+  val sentAt: String,
+  val text: String,
+  val chatTitle: String,
+  val replyToMessageId: Long?,
+  val isOutgoing: Boolean,
 )
 
 @Serializable
@@ -170,15 +206,32 @@ private fun SearchResponse.toDataModel(): SearchResponseDataModel = SearchRespon
     keywords = intent.keywords,
   ),
   selfUserId = selfUserId,
+  contextBeforeMessages = contextBeforeMessages,
+  contextAfterMessages = contextAfterMessages,
   results = results.map { result ->
     SearchResultDataModel(
       chunkKey = result.chunkKey,
       chatId = result.chatId,
-      messageIds = result.messageIds,
-      senderName = result.senderName,
-      sentAt = result.sentAt.toString(),
+      anchorMessageIds = result.anchorMessageIds,
+      anchorSenderName = result.anchorSenderName,
+      anchorSentAt = result.anchorSentAt.toString(),
       chatTitle = result.chatTitle,
       text = result.text,
+      anchorText = result.anchorText,
+      contextExpanded = result.contextExpanded,
+      messages = result.messages.map { message ->
+        SearchMessageDataModel(
+          chatId = message.chatId,
+          messageId = message.messageId,
+          senderId = message.senderId,
+          senderName = message.senderName,
+          sentAt = message.sentAt.toString(),
+          text = message.text,
+          chatTitle = message.chatTitle,
+          replyToMessageId = message.replyToMessageId,
+          isOutgoing = message.isOutgoing,
+        )
+      },
       lexicalScore = result.lexicalScore,
       semanticScore = result.semanticScore,
       combinedScore = result.combinedScore,
