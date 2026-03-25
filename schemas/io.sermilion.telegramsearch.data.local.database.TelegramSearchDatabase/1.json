@@ -1,0 +1,242 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "7423ed791cc7b239b9dc89d51db0395f",
+    "entities": [
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`message_key` TEXT NOT NULL, `chat_id` INTEGER NOT NULL, `message_id` INTEGER NOT NULL, `sender_id` INTEGER, `sender_name` TEXT NOT NULL, `sent_at_epoch_seconds` INTEGER NOT NULL, `text` TEXT NOT NULL, `chat_title` TEXT NOT NULL, `reply_to_message_id` INTEGER, `is_outgoing` INTEGER NOT NULL, PRIMARY KEY(`message_key`))",
+        "fields": [
+          {
+            "fieldPath": "messageKey",
+            "columnName": "message_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatId",
+            "columnName": "chat_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "messageId",
+            "columnName": "message_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senderId",
+            "columnName": "sender_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "sender_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sentAtEpochSeconds",
+            "columnName": "sent_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatTitle",
+            "columnName": "chat_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replyToMessageId",
+            "columnName": "reply_to_message_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "isOutgoing",
+            "columnName": "is_outgoing",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "message_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_chat_id_sent_at_epoch_seconds",
+            "unique": false,
+            "columnNames": [
+              "chat_id",
+              "sent_at_epoch_seconds"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_chat_id_sent_at_epoch_seconds` ON `${TABLE_NAME}` (`chat_id`, `sent_at_epoch_seconds`)"
+          }
+        ]
+      },
+      {
+        "tableName": "message_chunks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`chunk_key` TEXT NOT NULL, `chat_id` INTEGER NOT NULL, `message_ids_json` TEXT NOT NULL, `sender_id` INTEGER, `sender_name` TEXT NOT NULL, `sent_at_epoch_seconds` INTEGER NOT NULL, `chat_title` TEXT NOT NULL, `text` TEXT NOT NULL, `embedding_json` TEXT NOT NULL, PRIMARY KEY(`chunk_key`))",
+        "fields": [
+          {
+            "fieldPath": "chunkKey",
+            "columnName": "chunk_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatId",
+            "columnName": "chat_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "messageIdsJson",
+            "columnName": "message_ids_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senderId",
+            "columnName": "sender_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "sender_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sentAtEpochSeconds",
+            "columnName": "sent_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatTitle",
+            "columnName": "chat_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "embeddingJson",
+            "columnName": "embedding_json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "chunk_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_message_chunks_chat_id_sent_at_epoch_seconds",
+            "unique": false,
+            "columnNames": [
+              "chat_id",
+              "sent_at_epoch_seconds"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_message_chunks_chat_id_sent_at_epoch_seconds` ON `${TABLE_NAME}` (`chat_id`, `sent_at_epoch_seconds`)"
+          }
+        ]
+      },
+      {
+        "tableName": "message_chunk_fts",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`chunk_key` TEXT NOT NULL, `sender_name` TEXT NOT NULL, `chat_title` TEXT NOT NULL, `text` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "chunkKey",
+            "columnName": "chunk_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "sender_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatTitle",
+            "columnName": "chat_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": []
+        },
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "simple",
+          "tokenizerArgs": [],
+          "contentTable": "",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        },
+        "contentSyncTriggers": []
+      },
+      {
+        "tableName": "metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7423ed791cc7b239b9dc89d51db0395f')"
+    ]
+  }
+}
