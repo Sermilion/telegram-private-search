@@ -59,7 +59,7 @@ class TelegramSearchMcpServer(
     )
     server.addTool(
       name = "search_messages",
-      description = "Search indexed private Telegram messages using local retrieval, optional semantic ranking, and expanded thread context.",
+      description = "Search indexed private Telegram messages using local retrieval, local heuristics, and expanded thread context.",
       inputSchema = ToolSchema(
         properties = buildJsonObject {
           putJsonObject("query") {

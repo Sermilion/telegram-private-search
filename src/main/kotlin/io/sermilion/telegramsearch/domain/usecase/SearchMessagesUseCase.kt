@@ -123,7 +123,9 @@ class SearchMessagesUseCase(
     val lexicalScore = keywordOverlap(candidate, intent)
     val semanticScore = cosineSimilarity(queryEmbedding, candidate.embedding)
     val recencyScore = recencyScore(candidate)
-    val combinedScore = (lexicalScore * 0.45) + (semanticScore * 0.45) + (recencyScore * 0.10)
+    val semanticWeight = if (queryEmbedding.isEmpty()) 0.0 else 0.45
+    val lexicalWeight = if (semanticWeight == 0.0) 0.90 else 0.45
+    val combinedScore = (lexicalScore * lexicalWeight) + (semanticScore * semanticWeight) + (recencyScore * 0.10)
     return SearchResult(
       chunkKey = candidate.chunkKey,
       chatId = candidate.chatId,

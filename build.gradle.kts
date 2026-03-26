@@ -32,8 +32,6 @@ dependencies {
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.coroutines.jdk8)
   implementation(libs.kotlinx.serialization.json)
-  implementation(libs.ktor.client.cio)
-  implementation(libs.ktor.client.content.negotiation)
   implementation(libs.ktor.serialization.json)
   implementation(libs.ktor.io)
   implementation(libs.room3.runtime)

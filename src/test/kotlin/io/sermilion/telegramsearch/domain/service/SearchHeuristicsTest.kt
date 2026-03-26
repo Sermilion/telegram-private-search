@@ -13,4 +13,10 @@ class SearchHeuristicsTest : FunSpec({
     intent.speakerHint shouldBe SpeakerHint.OTHER
     intent.keywords shouldContain "readian"
   }
+
+  test("does not classify self queries as other just because they mention reported") {
+    val intent = SearchHeuristics.analyze("find the last message where i reported the issue")
+
+    intent.speakerHint shouldBe SpeakerHint.SELF
+  }
 })

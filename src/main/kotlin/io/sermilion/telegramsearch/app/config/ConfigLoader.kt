@@ -16,14 +16,6 @@ object ConfigLoader {
         useConsoleLogin = env["TELEGRAM_USE_CONSOLE_LOGIN"].orEmpty().ifBlank { "true" }.toBoolean(),
         sessionDirectory = resolvePath(rootDirectory, env["TELEGRAM_SESSION_DIR"].orEmpty().ifBlank { "data/telegram-session" }),
       ),
-      openAi = OpenAiConfig(
-        baseUrl = env["OPENAI_BASE_URL"].orEmpty().ifBlank { "https://api.openai.com/v1" }.removeSuffix("/"),
-        apiKey = env["OPENAI_API_KEY"].orEmpty(),
-        chatModel = env["OPENAI_CHAT_MODEL"].orEmpty().ifBlank { "gpt-4.1-mini" },
-        queryAnalysisEnabled = env["QUERY_ANALYSIS_ENABLED"].orEmpty().ifBlank { "false" }.toBoolean(),
-        embeddingModel = env["OPENAI_EMBEDDING_MODEL"].orEmpty().ifBlank { "text-embedding-3-small" },
-        embeddingsEnabled = env["EMBEDDINGS_ENABLED"].orEmpty().ifBlank { "false" }.toBoolean(),
-      ),
       databasePath = resolvePath(rootDirectory, env["DATABASE_PATH"].orEmpty().ifBlank { "data/telegram-search.db" }),
     )
   }

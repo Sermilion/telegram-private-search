@@ -12,7 +12,7 @@ Sources: conversational design in this session
 
 ---
 
-The current search flow indexes chunks and can send message chunk text to an OpenAI-compatible embedding provider during indexing when embeddings are enabled. Retrieval is local, but the archive-wide embedding step expands the privacy boundary more than necessary.
+The previous search flow could send large amounts of message text to an external provider during indexing. Retrieval is local, but that archive-wide remote analysis expanded the privacy boundary more than necessary.
 
 This feature changes the search path to reconstruct relevant thread slices locally from indexed messages. The MCP search tool should return expanded conversation context by default so a remote LLM can analyze the actual thread that matters instead of isolated message chunks. Context expansion should still support opt-out behavior for smaller results.
 
@@ -22,4 +22,4 @@ The implementation should:
 - expand ranked chunk hits into conversation slices with preserved message metadata
 - avoid duplicate overlapping slices when multiple anchors land in the same local thread window
 - expose context controls in the MCP tool schema and response
-- update docs to explain the privacy model clearly, including the fact that archive-wide embeddings are disabled by default and expanded thread retrieval happens locally
+- update docs to explain the privacy model clearly, including the fact that expanded thread retrieval happens locally

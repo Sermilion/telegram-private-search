@@ -7,7 +7,7 @@ Sources: interactive user conversation
 1. A local Kotlin/JVM project exists under /Users/sermilion/Development/telegram-private-search.
 2. The project can authenticate to Telegram using the user's own account.
 3. The project can index private conversation messages and metadata into a local SQLite database.
-4. The project supports description-based search using semantic search with an OpenAI-compatible provider.
+4. The project supports description-based search through local retrieval and conversation expansion.
 5. The project exposes search through an MCP-compatible server interface.
 6. The project includes tests covering core search and indexing logic.
 

@@ -4,9 +4,9 @@ import io.sermilion.telegramsearch.adapter.mcp.TelegramSearchMcpServer
 import io.sermilion.telegramsearch.app.config.ConfigLoader
 import io.sermilion.telegramsearch.data.local.database.TelegramSearchDatabase
 import io.sermilion.telegramsearch.data.local.database.TelegramSearchDatabaseFactory
-import io.sermilion.telegramsearch.data.remote.llm.OpenAiSearchIntelligence
 import io.sermilion.telegramsearch.data.remote.telegram.TdLightTelegramGateway
 import io.sermilion.telegramsearch.data.repository.RoomMessageRepository
+import io.sermilion.telegramsearch.domain.service.LocalSearchIntelligence
 import io.sermilion.telegramsearch.domain.service.MessageChunker
 import io.sermilion.telegramsearch.domain.usecase.IndexPrivateChatsUseCase
 import io.sermilion.telegramsearch.domain.usecase.SearchMessagesUseCase
@@ -14,7 +14,6 @@ import kotlinx.coroutines.runBlocking
 
 class AppContainer private constructor(
   private val database: TelegramSearchDatabase,
-  private val searchIntelligence: OpenAiSearchIntelligence,
   private val telegramGateway: TdLightTelegramGateway,
   val indexPrivateChatsUseCase: IndexPrivateChatsUseCase,
   val searchMessagesUseCase: SearchMessagesUseCase,
@@ -24,7 +23,6 @@ class AppContainer private constructor(
     runBlocking {
       telegramGateway.disconnect()
     }
-    searchIntelligence.close()
     database.close()
   }
 
@@ -37,7 +35,7 @@ class AppContainer private constructor(
         messageChunkDao = database.messageChunkDao(),
         metadataDao = database.metadataDao(),
       )
-      val searchIntelligence = OpenAiSearchIntelligence(config.openAi)
+      val searchIntelligence = LocalSearchIntelligence()
       val telegramGateway = TdLightTelegramGateway(config.telegram)
       val indexPrivateChatsUseCase = IndexPrivateChatsUseCase(
         telegramGateway = telegramGateway,
@@ -55,7 +53,6 @@ class AppContainer private constructor(
       )
       return AppContainer(
         database = database,
-        searchIntelligence = searchIntelligence,
         telegramGateway = telegramGateway,
         indexPrivateChatsUseCase = indexPrivateChatsUseCase,
         searchMessagesUseCase = searchMessagesUseCase,

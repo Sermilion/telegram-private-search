@@ -39,7 +39,7 @@ object SearchHeuristics {
   private fun guessSpeaker(query: String): SpeakerHint {
     val lowered = query.lowercase()
     return when {
-      listOf(" he ", " she ", " they ", " reported ").any { lowered.contains(it) } -> SpeakerHint.OTHER
+      listOf(" he ", " she ", " they ").any { lowered.contains(it) } -> SpeakerHint.OTHER
       listOf(" i ", " my ", " me ").any { lowered.contains(it) } -> SpeakerHint.SELF
       else -> SpeakerHint.UNKNOWN
     }

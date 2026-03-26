@@ -43,7 +43,7 @@ Instead of scrolling through years of chats and trying random keywords, you can 
 - "Show messages where he said he was blocked on the backend"
 - "Find the conversation where we compared apartment options"
 
-It indexes your private Telegram chats into a local SQLite database, then combines keyword search with semantic search so vague, memory-shaped queries still have a good chance of finding the right message.
+It indexes your private Telegram chats into a local SQLite database, then combines local keyword search, recency-aware ranking, and thread expansion so vague, memory-shaped queries still have a good chance of finding the right message.
 
 ## What this MCP server is
 
@@ -84,7 +84,7 @@ Local SQLite index (Room)
       |
       +--> keyword search
       |
-      +--> optional embeddings / semantic retrieval
+      +--> local lexical retrieval
       |
       v
 Ranking and result shaping
@@ -97,7 +97,7 @@ Ranking and result shaping
       MCP-compatible assistant or client
 ```
 
-In short: Telegram messages come in, a local index is built, hybrid retrieval finds relevant results, and the MCP server exposes that capability to tools that can speak MCP.
+In short: Telegram messages come in, a local index is built, local retrieval finds relevant results, and the MCP server exposes that capability to tools that can speak MCP.
 
 ## Why it exists
 
@@ -115,7 +115,7 @@ Traditional search is great when you remember exact text. It is much less helpfu
 
 - Authenticate with your own Telegram account
 - Index private chat messages into a local SQLite database
-- Search with hybrid full-text and semantic retrieval
+- Search with local full-text retrieval and thread expansion
 - Rank results with recency-aware heuristics
 - Expose search through an MCP-compatible server
 - Run as a local CLI for indexing and direct querying
@@ -125,24 +125,24 @@ Traditional search is great when you remember exact text. It is much less helpfu
 1. The app authenticates against Telegram using your own API credentials.
 2. It reads private chat messages from your account.
 3. Messages are stored locally in SQLite via Room.
-4. Search uses keyword matching plus optional embeddings from an OpenAI-compatible provider.
+4. Search uses local keyword matching, recency-aware ranking, and thread expansion.
 5. The MCP server exposes that search capability to external AI clients.
 
 The current ingestion path focuses on text messages from main and archived private chats.
 
 ## Privacy and data flow
 
-This project is designed to keep retrieval local and only expose the conversation slices you actually ask for.
+This project is designed to keep the server retrieval-only and only expose the conversation slices you actually ask for.
 
 - Telegram data is indexed into a local database under `data/`
 - Your `.env` stays local and should never be committed
 - The MCP server runs locally over `stdio`
 - `search_messages` reconstructs expanded thread context locally before returning results
-- Query analysis falls back to local heuristics unless you explicitly enable remote query analysis
-- Archive-wide embeddings are disabled by default
-- Semantic features use an OpenAI-compatible API for query understanding, and for archive embeddings only when you explicitly enable them
+- Query interpretation uses local heuristics only
+- The server does not call any external LLM or embedding API
+- Your current Copilot/AI agent should do the reasoning after calling the MCP tools
 
-If query analysis is enabled, your search query text is sent to the configured model provider. If embeddings are enabled, indexing sends chunk text to the provider to build semantic vectors. If you want the strictest setup, leave both disabled and rely on local heuristics plus thread expansion.
+If you want deeper reasoning over vague memory-style queries, let the MCP client ask for broader local context and let the current AI agent analyze that returned thread slice. The server itself stays local.
 
 ## Example use cases
 
@@ -151,7 +151,7 @@ This project is useful when you want to:
 - recover the last concrete progress update from a teammate or friend
 - find a decision that was made informally in chat
 - trace when someone promised, postponed, confirmed, or declined something
-- search conversations by meaning rather than exact phrasing
+- search conversations from fuzzy memory without relying on exact phrasing
 - give an MCP-enabled assistant access to your Telegram memory as a tool
 
 ## Stack
@@ -160,7 +160,6 @@ This project is useful when you want to:
 - Clean architecture with MVVM-style presentation state
 - Room 3 with bundled SQLite
 - TDLight for Telegram user-account access
-- OpenAI-compatible API for query understanding and embeddings
 - MCP server over `stdio`
 
 ## Setup
@@ -174,18 +173,12 @@ This project is useful when you want to:
 Example local configuration:
 
 ```env
-OPENAI_API_KEY=
 TELEGRAM_API_ID=
 TELEGRAM_API_HASH=
 TELEGRAM_PHONE_NUMBER=
 TELEGRAM_USE_CONSOLE_LOGIN=true
 TELEGRAM_SESSION_DIR=data/telegram-session
 DATABASE_PATH=data/telegram-search.db
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_CHAT_MODEL=gpt-4.1-mini
-QUERY_ANALYSIS_ENABLED=false
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDINGS_ENABLED=false
 ```
 
 ## CLI usage
@@ -219,6 +212,43 @@ Start the MCP server:
 
 Once running, an MCP-compatible client can use the server's search tools to query your indexed Telegram history.
 
+The bundled Kotlin MCP stdio transport uses one JSON-RPC message per line. It does not use `Content-Length` framing, so manual smoke tests should write newline-delimited JSON objects to stdin and read newline-delimited JSON objects from stdout.
+
+Quick smoke test:
+
+```bash
+python3 - <<'PY'
+import json, subprocess
+
+proc = subprocess.Popen(
+  ['./build/install/telegram-private-search/bin/telegram-private-search', 'mcp'],
+  stdin=subprocess.PIPE,
+  stdout=subprocess.PIPE,
+  text=True,
+  bufsize=1,
+)
+
+for message in [
+  {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke-test","version":"1.0"}}},
+  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}},
+  {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}},
+]:
+  proc.stdin.write(json.dumps(message) + "\n")
+  proc.stdin.flush()
+
+print(proc.stdout.readline().strip())
+print(proc.stdout.readline().strip())
+
+proc.terminate()
+proc.wait(timeout=5)
+PY
+```
+
+The intended architecture is:
+
+- MCP server: local indexing, local search, local thread expansion
+- current AI agent: reasoning, reranking, summaries, follow-up investigation
+
 `search_messages` accepts these optional context controls:
 
 - `context_before_messages`: how many earlier messages to include around each matched anchor
@@ -230,4 +260,4 @@ Both default to `12`, so the tool returns a local conversation slice rather than
 
 - The first `index` run is interactive if `TELEGRAM_USE_CONSOLE_LOGIN=true`.
 - TDLight logs are reduced to keep login prompts visible.
-- Search combines local keyword filtering, optional embeddings, recency-aware ranking, and local thread expansion.
+- Search combines local keyword filtering, local heuristics, recency-aware ranking, and local thread expansion.
