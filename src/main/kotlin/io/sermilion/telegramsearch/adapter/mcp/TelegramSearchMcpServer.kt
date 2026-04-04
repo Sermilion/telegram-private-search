@@ -12,6 +12,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import io.sermilion.telegramsearch.domain.model.IndexSummary
 import io.sermilion.telegramsearch.domain.model.SearchResponse
+import io.sermilion.telegramsearch.domain.repository.SearchIntelligence
 import io.sermilion.telegramsearch.domain.service.JsonSupport
 import io.sermilion.telegramsearch.domain.usecase.IndexPrivateChatsUseCase
 import io.sermilion.telegramsearch.domain.usecase.SearchMessagesUseCase
@@ -26,11 +27,21 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import java.time.Clock
+import java.time.Duration
 
 class TelegramSearchMcpServer(
   private val indexPrivateChatsUseCase: IndexPrivateChatsUseCase,
   private val searchMessagesUseCase: SearchMessagesUseCase,
+  private val searchIntelligence: SearchIntelligence,
+  private val clock: Clock = Clock.systemUTC(),
+  latestRefreshFreshnessWindow: Duration = LatestMessageRefreshGate.DEFAULT_FRESHNESS_WINDOW,
 ) {
+  private val latestMessageRefreshGate = LatestMessageRefreshGate(
+    clock = clock,
+    freshnessWindow = latestRefreshFreshnessWindow,
+  )
+
   fun run() {
     val server = createServer()
     val transport = StdioServerTransport(
@@ -59,7 +70,7 @@ class TelegramSearchMcpServer(
     )
     server.addTool(
       name = "search_messages",
-      description = "Search indexed private Telegram messages using local retrieval, local heuristics, and expanded thread context.",
+      description = "Search indexed private Telegram messages using local retrieval, local heuristics, and expanded thread context. Latest-oriented queries refresh the local index first, while reusing a recent refresh to avoid duplicate imports.",
       inputSchema = ToolSchema(
         properties = buildJsonObject {
           putJsonObject("query") {
@@ -87,24 +98,28 @@ class TelegramSearchMcpServer(
         },
         required = listOf("query"),
       ),
-      toolAnnotations = ToolAnnotations(readOnlyHint = true, openWorldHint = false),
+      toolAnnotations = ToolAnnotations(readOnlyHint = false, openWorldHint = true),
     ) { request ->
-      runBlocking {
-        val arguments = request.arguments
-        val query = arguments.requiredString("query")
-        val limit = arguments.intValue("limit") ?: 5
-        val selfUserId = arguments.longValue("self_user_id")
-        val contextBeforeMessages = arguments.intValue("context_before_messages") ?: 12
-        val contextAfterMessages = arguments.intValue("context_after_messages") ?: 12
-        val response = searchMessagesUseCase(
-          query = query,
-          limit = limit,
-          selfUserId = selfUserId,
-          contextBeforeMessages = contextBeforeMessages,
-          contextAfterMessages = contextAfterMessages,
-        )
-        CallToolResult(content = listOf(TextContent(JsonSupport.json.encodeToString(response.toDataModel()))))
+      val arguments = request.arguments
+      val query = arguments.requiredString("query")
+      val intent = searchIntelligence.analyzeQuery(query)
+      val limit = arguments.intValue("limit") ?: 5
+      val selfUserId = arguments.longValue("self_user_id")
+      val contextBeforeMessages = arguments.intValue("context_before_messages") ?: 12
+      val contextAfterMessages = arguments.intValue("context_after_messages") ?: 12
+      if (intent.wantsLatest) {
+        latestMessageRefreshGate.refreshIfStale {
+          indexPrivateChatsUseCase(DEFAULT_REINDEX_LIMIT_PER_CHAT)
+        }
       }
+      val response = searchMessagesUseCase(
+        query = query,
+        limit = limit,
+        selfUserId = selfUserId,
+        contextBeforeMessages = contextBeforeMessages,
+        contextAfterMessages = contextAfterMessages,
+      )
+      CallToolResult(content = listOf(TextContent(JsonSupport.json.encodeToString(response.toDataModel()))))
     }
     server.addTool(
       name = "index_private_messages",
@@ -119,11 +134,9 @@ class TelegramSearchMcpServer(
       ),
       toolAnnotations = ToolAnnotations(readOnlyHint = false, openWorldHint = false),
     ) { request ->
-      runBlocking {
-        val limitPerChat = request.arguments.intValue("limit_per_chat") ?: 1000
-        val summary = indexPrivateChatsUseCase(limitPerChat)
-        CallToolResult(content = listOf(TextContent(JsonSupport.json.encodeToString(summary.toDataModel()))))
-      }
+      val limitPerChat = request.arguments.intValue("limit_per_chat") ?: 1000
+      val summary = indexPrivateChatsUseCase(limitPerChat)
+      CallToolResult(content = listOf(TextContent(JsonSupport.json.encodeToString(summary.toDataModel()))))
     }
     return server
   }
@@ -138,6 +151,10 @@ class TelegramSearchMcpServer(
 
   private fun Map<String, JsonElement>?.longValue(key: String): Long? =
     this?.get(key)?.jsonPrimitive?.content?.toLongOrNull()
+
+  private companion object {
+    const val DEFAULT_REINDEX_LIMIT_PER_CHAT = 1000
+  }
 }
 
 @Serializable
