@@ -132,12 +132,13 @@ The current ingestion path focuses on text messages from main and archived priva
 
 ## Privacy and data flow
 
-This project is designed to keep the server retrieval-only and only expose the conversation slices you actually ask for.
+This project keeps indexing, search, and context reconstruction local, and only returns the conversation slices you actually ask for.
 
 - Telegram data is indexed into a local database under `data/`
 - Your `.env` stays local and should never be committed
 - The MCP server runs locally over `stdio`
 - `search_messages` reconstructs expanded thread context locally before returning results
+- `search_messages` refreshes the local index for latest-oriented queries and reuses a very recent refresh to avoid duplicate imports
 - Query interpretation uses local heuristics only
 - The server does not call any external LLM or embedding API
 - Your current Copilot/AI agent should do the reasoning after calling the MCP tools
@@ -255,6 +256,8 @@ The intended architecture is:
 - `context_after_messages`: how many later messages to include around each matched anchor
 
 Both default to `12`, so the tool returns a local conversation slice rather than an isolated chunk. Set them to `0` if you want anchor-only results.
+
+When the query asks for the **latest** messages, the MCP server refreshes the local Telegram index before searching so the answer reflects recent chat activity. Repeated latest-style queries reuse a very recent refresh instead of launching another full Telegram import right away.
 
 ## Notes
 

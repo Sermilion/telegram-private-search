@@ -50,6 +50,7 @@ class AppContainer private constructor(
       val mcpServer = TelegramSearchMcpServer(
         indexPrivateChatsUseCase = indexPrivateChatsUseCase,
         searchMessagesUseCase = searchMessagesUseCase,
+        searchIntelligence = searchIntelligence,
       )
       return AppContainer(
         database = database,

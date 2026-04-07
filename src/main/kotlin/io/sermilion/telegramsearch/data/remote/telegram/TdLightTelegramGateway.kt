@@ -29,7 +29,7 @@ class TdLightTelegramGateway(
 
   override suspend fun connect(): TelegramAccount {
     client?.let { activeClient ->
-      val me = activeClient.getMeAsync().await()
+      val me = activeClient.meAsync.await()
       return me.toAccount()
     }
     System.setProperty("org.slf4j.simpleLogger.log.it.tdlight", "warn")
@@ -38,11 +38,11 @@ class TdLightTelegramGateway(
     val sessionRoot = Paths.get(config.sessionDirectory)
     Files.createDirectories(sessionRoot)
     val settings = TDLibSettings.create(APIToken(config.apiId, config.apiHash)).apply {
-      setDatabaseDirectoryPath(sessionRoot.resolve("tdlight-data"))
-      setDownloadedFilesDirectoryPath(sessionRoot.resolve("downloads"))
-      setMessageDatabaseEnabled(true)
-      setChatInfoDatabaseEnabled(true)
-      setFileDatabaseEnabled(true)
+      databaseDirectoryPath = sessionRoot.resolve("tdlight-data")
+        downloadedFilesDirectoryPath = sessionRoot.resolve("downloads")
+        isMessageDatabaseEnabled = true
+        isChatInfoDatabaseEnabled = true
+        isFileDatabaseEnabled = true
     }
     val factory = SimpleTelegramClientFactory()
     val builder = factory.builder(settings)
@@ -57,22 +57,20 @@ class TdLightTelegramGateway(
     val createdClient = builder.build(authenticationSupplier)
     clientFactory = factory
     client = createdClient
-    val me = createdClient.getMeAsync().await()
+    val me = createdClient.meAsync.await()
     userNameCache[me.id] = me.displayName()
     return me.toAccount()
   }
 
   override suspend fun loadPrivateMessages(limitPerChat: Int): List<IndexedMessage> {
     val activeClient = client ?: error("Telegram client is not connected")
-    val me = activeClient.getMeAsync().await()
+    val me = activeClient.meAsync.await()
     userNameCache[me.id] = me.displayName()
     val messages = mutableListOf<IndexedMessage>()
-    loadPrivateChatIds(activeClient).forEach { chatId ->
+    loadPrivateChatIds(activeClient, me.id).forEach { chatId ->
       val chat: TdApi.Chat = activeClient.send(TdApi.GetChat(chatId)).await()
       val privateType = chat.type as? TdApi.ChatTypePrivate ?: return@forEach
-      if (privateType.userId == me.id) {
-        return@forEach
-      }
+      val chatTitle = normalizePrivateChatTitle(chat.title, privateType.userId, me.id)
       val history = loadChatHistory(
         activeClient = activeClient,
         chatId = chat.id,
@@ -84,7 +82,7 @@ class TdLightTelegramGateway(
         if (text.isBlank()) {
           return@forEach
         }
-        val sender = resolveSender(activeClient, message, me.id, chat.title)
+        val sender = resolveSender(activeClient, message, me.id, chatTitle)
         messages += IndexedMessage(
           chatId = chat.id,
           messageId = message.id,
@@ -92,7 +90,7 @@ class TdLightTelegramGateway(
           senderName = sender.second,
           sentAt = Instant.ofEpochSecond(message.date.toLong()),
           text = text,
-          chatTitle = chat.title,
+          chatTitle = chatTitle,
           replyToMessageId = replyToMessageId(message),
           isOutgoing = message.isOutgoing,
         )
@@ -102,13 +100,14 @@ class TdLightTelegramGateway(
     return messages
   }
 
-  private suspend fun loadPrivateChatIds(activeClient: SimpleTelegramClient): List<Long> {
+  private suspend fun loadPrivateChatIds(activeClient: SimpleTelegramClient, selfUserId: Long): List<Long> {
     val chatIds = linkedSetOf<Long>()
     listOf(TdApi.ChatListMain(), TdApi.ChatListArchive()).forEach { chatList ->
       loadChatList(activeClient, chatList)
       chatIds += loadChatIds(activeClient, chatList)
     }
     chatIds += loadPrivateChatIdsFromContacts(activeClient)
+    chatIds += loadSelfChatId(activeClient, selfUserId)
     return chatIds.toList()
   }
 
@@ -123,6 +122,12 @@ class TdLightTelegramGateway(
       }
     }
     return chatIds.toList()
+  }
+
+  private suspend fun loadSelfChatId(activeClient: SimpleTelegramClient, selfUserId: Long): List<Long> {
+    val privateChat = activeClient.send(TdApi.CreatePrivateChat(selfUserId, false)).await()
+    val privateType = privateChat.type as? TdApi.ChatTypePrivate ?: return emptyList()
+    return if (privateType.userId == selfUserId) listOf(privateChat.id) else emptyList()
   }
 
   private suspend fun loadChatIds(
@@ -197,7 +202,7 @@ class TdLightTelegramGateway(
     val messages = mutableListOf<TdApi.Message>()
     val seenIds = mutableSetOf<Long>()
     var fromMessageId = latestMessageId
-    while (messages.size < limitPerChat && fromMessageId != 0L) {
+    while (messages.size < limitPerChat) {
       val pageLimit = minOf(100, limitPerChat - messages.size)
       val page = activeClient.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, pageLimit, false)).await()
       val pageMessages = page.messages.orEmpty().toList()
@@ -210,7 +215,7 @@ class TdLightTelegramGateway(
         }
       }
       val oldestMessage = pageMessages.last().id
-      if (oldestMessage == fromMessageId) {
+      if (oldestMessage == 0L || oldestMessage == fromMessageId) {
         break
       }
       fromMessageId = oldestMessage
@@ -262,3 +267,13 @@ class TdLightTelegramGateway(
       .ifBlank { phoneNumber.orEmpty().ifBlank { id.toString() } }
   }
 }
+
+internal fun normalizePrivateChatTitle(chatTitle: String, participantUserId: Long, selfUserId: Long): String {
+  return if (participantUserId == selfUserId) {
+    SAVED_MESSAGES_TITLE
+  } else {
+    chatTitle
+  }
+}
+
+internal const val SAVED_MESSAGES_TITLE = "Saved Messages"
