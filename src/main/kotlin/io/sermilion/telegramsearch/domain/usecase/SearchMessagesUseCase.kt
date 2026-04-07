@@ -41,20 +41,24 @@ class SearchMessagesUseCase(
     val rankedCandidates = candidates.values
       .asSequence()
       .filter { candidate -> matchesSpeaker(intent, candidate.senderId, effectiveSelfUserId) }
-      .map { candidate -> toResult(candidate, intent, queryEmbedding) }
+      .map { candidate -> toRankedCandidate(candidate, intent, queryEmbedding) }
       .sortedWith(
         if (intent.wantsLatest) {
-          compareByDescending<SearchResult> { it.anchorSentAt }.thenByDescending { it.combinedScore }
+          compareByDescending<RankedCandidate> { it.latestPhraseScore }
+            .thenByDescending { it.result.anchorSentAt }
+            .thenByDescending { it.result.combinedScore }
         } else {
-          compareByDescending<SearchResult> { it.combinedScore }.thenByDescending { it.anchorSentAt }
+          compareByDescending<RankedCandidate> { it.result.combinedScore }
+            .thenByDescending { it.result.anchorSentAt }
         }
       )
       .toList()
     val ranked = mutableListOf<SearchResult>()
-    rankedCandidates.forEach { candidate ->
+    rankedCandidates.forEach { rankedCandidate ->
       if (ranked.size >= limit) {
         return@forEach
       }
+      val candidate = rankedCandidate.result
       val messages = messageRepository.conversationSlice(
         chatId = candidate.chatId,
         anchorMessageIds = candidate.anchorMessageIds,
@@ -119,6 +123,18 @@ class SearchMessagesUseCase(
     }
   }
 
+  private fun toRankedCandidate(
+    candidate: StoredChunk,
+    intent: SearchIntent,
+    queryEmbedding: List<Double>,
+  ): RankedCandidate {
+    val result = toResult(candidate, intent, queryEmbedding)
+    return RankedCandidate(
+      result = result,
+      latestPhraseScore = latestPhraseScore(candidate, intent),
+    )
+  }
+
   private fun toResult(candidate: StoredChunk, intent: SearchIntent, queryEmbedding: List<Double>): SearchResult {
     val lexicalScore = keywordOverlap(candidate, intent)
     val semanticScore = cosineSimilarity(queryEmbedding, candidate.embedding)
@@ -141,6 +157,50 @@ class SearchMessagesUseCase(
       semanticScore = semanticScore,
       combinedScore = combinedScore,
     )
+  }
+
+  private fun latestPhraseScore(candidate: StoredChunk, intent: SearchIntent): Int {
+    if (!intent.wantsLatest) {
+      return 0
+    }
+    val phrases = contiguousQueryPhrases(intent)
+    if (phrases.isEmpty()) {
+      return 0
+    }
+    val haystack = normalizeForPhraseMatch(
+      buildString {
+        append(candidate.text)
+        append(' ')
+        append(candidate.chatTitle)
+        append(' ')
+        append(candidate.senderName)
+      }
+    )
+    return phrases.firstOrNull { haystack.contains(it) }?.split(' ')?.size ?: 0
+  }
+
+  private fun contiguousQueryPhrases(intent: SearchIntent): List<String> {
+    val terms = normalizeForPhraseMatch(intent.originalQuery)
+      .split(' ')
+      .filter { it.length > 2 }
+    if (terms.size < 2) {
+      return emptyList()
+    }
+    val phrases = mutableListOf<String>()
+    val maxWindow = minOf(terms.size, 4)
+    for (window in maxWindow downTo 2) {
+      for (index in 0..terms.size - window) {
+        phrases += terms.subList(index, index + window).joinToString(" ")
+      }
+    }
+    return phrases.distinct()
+  }
+
+  private fun normalizeForPhraseMatch(text: String): String {
+    return text.lowercase()
+      .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+      .trim()
+      .replace(Regex("\\s+"), " ")
   }
 
   private fun keywordOverlap(candidate: StoredChunk, intent: SearchIntent): Double {
@@ -194,3 +254,8 @@ class SearchMessagesUseCase(
     const val DEFAULT_CONTEXT_MESSAGES = 12
   }
 }
+
+private data class RankedCandidate(
+  val result: SearchResult,
+  val latestPhraseScore: Int,
+)

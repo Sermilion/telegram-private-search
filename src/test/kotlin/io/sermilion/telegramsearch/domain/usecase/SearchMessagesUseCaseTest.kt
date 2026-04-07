@@ -320,6 +320,84 @@ class SearchMessagesUseCaseTest : FunSpec({
     response.results shouldHaveSize 2
     response.results.map { it.chatId } shouldBe listOf(200L, 100L)
   }
+
+  test("keeps latest queries scoped to the most relevant matches") {
+    val repository = FakeMessageRepository(
+      storedAccount = TelegramAccount(userId = 11, displayName = "Me"),
+      chunks = listOf(
+        StoredChunk(
+          chunkKey = "saved",
+          chatId = 300,
+          messageIds = listOf(30),
+          senderId = 11,
+          senderName = "Me",
+          sentAt = Instant.parse("2026-04-03T04:13:06Z"),
+          chatTitle = "Saved Messages",
+          text = "Yngbld parents post hardcore",
+          embedding = emptyList(),
+        ),
+        StoredChunk(
+          chunkKey = "recent",
+          chatId = 400,
+          messageIds = listOf(40),
+          senderId = 22,
+          senderName = "Alex",
+          sentAt = Instant.parse("2026-04-04T07:07:55Z"),
+          chatTitle = "Alex",
+          text = "Do you have the latest mix notes?",
+          embedding = emptyList(),
+        ),
+      ),
+      conversationSlices = mapOf(
+        "300:30" to listOf(
+          storedMessage(
+            chatId = 300,
+            chatTitle = "Saved Messages",
+            messageId = 30,
+            sentAt = "2026-04-03T04:13:06Z",
+            text = "Yngbld parents post hardcore",
+            senderId = 11,
+            senderName = "Me",
+            isOutgoing = true,
+          )
+        ),
+        "400:40" to listOf(
+          storedMessage(
+            chatId = 400,
+            chatTitle = "Alex",
+            messageId = 40,
+            sentAt = "2026-04-04T07:07:55Z",
+            text = "Do you have the latest mix notes?",
+          )
+        ),
+      ),
+    )
+    val intelligence = FakeSearchIntelligence(
+      intent = SearchIntent(
+        originalQuery = "latest saved messages",
+        topic = "latest",
+        activity = "",
+        speakerHint = SpeakerHint.UNKNOWN,
+        wantsLatest = true,
+        keywords = listOf("latest", "saved", "messages"),
+      )
+    )
+    val useCase = SearchMessagesUseCase(
+      messageRepository = repository,
+      searchIntelligence = intelligence,
+      clock = Clock.fixed(Instant.parse("2026-04-05T00:00:00Z"), ZoneOffset.UTC),
+    )
+
+    val response = useCase(
+      query = "latest saved messages",
+      limit = 1,
+      selfUserId = 11,
+    )
+
+    response.results shouldHaveSize 1
+    response.results.first().chatTitle shouldBe "Saved Messages"
+    response.results.first().messages.single().text shouldBe "Yngbld parents post hardcore"
+  }
 })
 
 private class FakeMessageRepository(
@@ -352,26 +430,26 @@ private class FakeMessageRepository(
   override suspend fun getStoredAccount(): TelegramAccount? = storedAccount
 }
 
-private class FakeSearchIntelligence : SearchIntelligence {
-  override suspend fun analyzeQuery(query: String): SearchIntent = SearchIntent(
-    originalQuery = query,
+private class FakeSearchIntelligence(
+  private val intent: SearchIntent = SearchIntent(
+    originalQuery = "find last time he reported progress on Readian",
     topic = "readian",
     activity = "progress update",
     speakerHint = SpeakerHint.OTHER,
     wantsLatest = true,
     keywords = listOf("readian", "progress"),
-  )
+  ),
+  private val embeddings: Map<String, List<Double>> = mapOf(
+    "find last time he reported progress on readian" to listOf(1.0, 0.0),
+    "readian progress is on track" to listOf(1.0, 0.0),
+    "i finished the api fix yesterday" to listOf(1.0, 0.0),
+    "we should discuss lunch" to listOf(0.0, 1.0),
+  ),
+) : SearchIntelligence {
+  override suspend fun analyzeQuery(query: String): SearchIntent = intent.copy(originalQuery = query)
 
   override suspend fun embedTexts(texts: List<String>): List<List<Double>> {
-    return texts.map { text ->
-      when (text.lowercase()) {
-        "find last time he reported progress on readian" -> listOf(1.0, 0.0)
-        "readian progress is on track" -> listOf(1.0, 0.0)
-        "i finished the api fix yesterday" -> listOf(1.0, 0.0)
-        "we should discuss lunch" -> listOf(0.0, 1.0)
-        else -> emptyList()
-      }
-    }
+    return texts.map { text -> embeddings[text.lowercase()].orEmpty() }
   }
 }
 

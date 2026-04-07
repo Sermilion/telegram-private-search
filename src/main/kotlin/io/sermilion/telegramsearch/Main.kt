@@ -5,6 +5,7 @@ import io.sermilion.telegramsearch.presentation.search.SearchViewModel
 import kotlinx.coroutines.runBlocking
 
 fun main(args: Array<String>) = runBlocking {
+  configureRuntime(args.firstOrNull())
   if (args.isEmpty()) {
     printUsage()
     return@runBlocking
@@ -74,6 +75,18 @@ private fun List<String>.flagValue(flag: String): String? {
     return null
   }
   return get(index + 1)
+}
+
+private fun configureRuntime(command: String?) {
+  if (command != "mcp") {
+    return
+  }
+  // Keep MCP stdio quiet so hosts only need to parse JSON-RPC frames.
+  System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "error")
+  System.setProperty("org.slf4j.simpleLogger.showDateTime", "false")
+  System.setProperty("org.slf4j.simpleLogger.showThreadName", "false")
+  System.setProperty("org.slf4j.simpleLogger.showLogName", "false")
+  System.setProperty("org.slf4j.simpleLogger.showShortLogName", "false")
 }
 
 private fun printUsage() {
